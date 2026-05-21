@@ -324,7 +324,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔍 جاري تحليل الصورة...")
 
         client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
+            api_key=os.environ.get("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")
         )
 
         user_content = [
@@ -422,7 +422,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
+            api_key=os.environ.get("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")
         )
 
         add_to_history(user_id, "user", prompt)
