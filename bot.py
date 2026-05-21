@@ -490,7 +490,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_to_history(user_id, "user", prompt)
 
         client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
+            api_key=os.environ.get("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")
         )
 
         response = client.messages.create(
@@ -510,7 +510,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطأ: {str(e)}")
 
 def main():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    token = os.environ.get("8932352806:AAHJFUfVdrM3oucm5mH9sWRiCe0tOjlq-nQ")
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
 
