@@ -1,0 +1,142 @@
+# 🎯 Bug Bounty Hunter Telegram Bot
+
+بوت تيليقرام ذكي بعقلية Bug Bounty Hunter — مدعوم بـ Claude AI من Anthropic
+
+## ✨ المميزات
+
+- 🔍 خبير في Recon وOSINT
+- 🔥 يعرف كل تقنيات وثغرات أمن الويب
+- 🛠️ يعطيك أوامر وأدوات جاهزة
+- 📊 يساعدك في تحليل التطبيقات
+- 📝 يساعدك في كتابة تقارير Bug Bounty
+- 💬 يتذكر سياق المحادثة
+
+## 📋 المتطلبات
+
+- Python 3.11+
+- Telegram Bot Token (من @BotFather)
+- Anthropic API Key
+
+## 🚀 طريقة التشغيل المحلية
+
+### 1. Clone المشروع
+```bash
+git clone https://github.com/YOUR_USERNAME/bug-bounty-bot
+cd bug-bounty-bot
+```
+
+### 2. تثبيت المكتبات
+```bash
+pip install -r requirements.txt
+```
+
+### 3. إعداد المتغيرات
+```bash
+cp .env.example .env
+# عدّل الملف وأضف التوكنات
+```
+
+```env
+TELEGRAM_BOT_TOKEN=your_token_here
+ANTHROPIC_API_KEY=your_key_here
+```
+
+### 4. تشغيل البوت
+```bash
+python bot.py
+```
+
+---
+
+## 📦 رفع على GitHub
+
+```bash
+git init
+git add .
+git commit -m "Initial commit: Bug Bounty Hunter Bot"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/bug-bounty-bot.git
+git push -u origin main
+```
+
+---
+
+## 🚂 نشر على Railway
+
+### الطريقة السهلة (من GitHub):
+
+1. سجّل دخول على [railway.app](https://railway.app)
+2. اضغط **"New Project"**
+3. اختر **"Deploy from GitHub repo"**
+4. اختر الـ repository
+5. اضغط **"Add Variables"** وأضف:
+   ```
+   TELEGRAM_BOT_TOKEN = your_token
+   ANTHROPIC_API_KEY  = your_key
+   ```
+6. Railway سيبدأ النشر تلقائياً ✅
+
+### التحقق من النشر:
+- اذهب إلى Deployments → شاهد الـ Logs
+- يجب تظهر: `🚀 Bug Bounty Hunter Bot is running...`
+
+---
+
+## 🤖 أوامر البوت
+
+| الأمر | الوصف |
+|-------|--------|
+| `/start` | رسالة ترحيب |
+| `/help` | دليل الاستخدام |
+| `/recon` | تقنيات الاستطلاع |
+| `/vulns` | قائمة الثغرات |
+| `/tools` | الأدوات المطلوبة |
+| `/methodology` | منهجية الاختبار |
+| `/clear` | مسح المحادثة |
+
+---
+
+## 📁 هيكل المشروع
+
+```
+bug-bounty-bot/
+├── bot.py                    # الملف الرئيسي
+├── requirements.txt          # المكتبات
+├── Procfile                  # إعداد Railway
+├── runtime.txt               # إصدار Python
+├── .env.example              # مثال المتغيرات
+├── .gitignore
+└── knowledge/
+    ├── 01_reconnaissance.md  # تقنيات الاستطلاع
+    ├── 02_analysis.md        # تحليل التطبيقات
+    ├── 03_heatmap_vulns.md   # Heat Map والثغرات
+    ├── 04_methodology.md     # المنهجية الكاملة
+    └── 05_advanced.md        # تقنيات متقدمة
+```
+
+---
+
+## ⚠️ تنبيه مهم
+
+هذا البوت مخصص **للاختبار القانوني فقط**:
+- برامج Bug Bounty المعتمدة (HackerOne, Bugcrowd, Intigriti)
+- اختبار الاختراق بإذن كتابي
+- تعلم وتدريب الأمن السيبراني
+
+**لا تستخدمه لأي نشاط غير قانوني.**
+
+---
+
+## 🔑 الحصول على API Keys
+
+### Telegram Bot Token:
+1. افتح @BotFather في تيليقرام
+2. أرسل `/newbot`
+3. اختر اسماً للبوت
+4. احفظ الـ Token
+
+### Anthropic API Key:
+1. سجّل على [console.anthropic.com](https://console.anthropic.com)
+2. اذهب إلى API Keys
+3. اضغط **"Create Key"**
+4. احفظ المفتاح
