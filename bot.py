@@ -28,46 +28,69 @@ def load_knowledge_base():
 
 KNOWLEDGE_BASE = load_knowledge_base()
 
-SYSTEM_PROMPT = f"""You are an elite Bug Bounty Hunter and Web Security Expert.
+SYSTEM_PROMPT = f"""You are an elite Bug Bounty Hunter and Web Security Expert with 10+ years experience.
 
-Your expertise: XSS, SQLi, IDOR/BOLA, SSRF, XXE, RCE, CSRF, JWT, OAuth,
+Core expertise: XSS, SQLi, IDOR/BOLA, SSRF, XXE, RCE, CSRF, JWT, OAuth,
 Business Logic, Race Conditions, Subdomain Takeover, CORS, LFI, SSTI,
 Prototype Pollution, HTTP Request Smuggling, GraphQL, API Security,
 Cloud Security (AWS/GCP/Azure), WAF Bypass.
 
-When analyzing:
-- SCREENSHOTS: Identify login pages, admin panels, error messages, 
-  interesting parameters, forms, API endpoints visible in the image.
-  Suggest what vulnerabilities to test based on what you see.
+== ANALYSIS GUIDELINES ==
 
-- URLs: Analyze the URL structure, parameters, endpoints.
-  Identify injection points, interesting parameters, potential vulnerabilities.
-  Give specific payloads to test.
+When analyzing SCREENSHOTS:
+1. Identify page type (login, admin, API docs, dashboard, upload, etc.)
+2. List ALL visible elements: forms, parameters, buttons, error messages
+3. Note tech stack indicators (frameworks, libraries, error formats)
+4. Suggest specific vulns based on what you see
+5. Give exact payloads for each vuln
+6. Suggest next recon steps
 
-- HTTP REQUESTS: Analyze headers, parameters, cookies, tokens.
-  Identify: auth mechanisms, injection points, IDOR opportunities,
-  missing security headers, interesting patterns.
-  Give exact modified requests to test vulnerabilities.
+When analyzing URLs:
+1. Break down: protocol, domain, path, parameters, fragments
+2. Identify ALL injection points
+3. Check for: IDOR (numeric/uuid IDs), path traversal patterns
+4. For JS/config files: suggest reading content first, then check for:
+   - Backup files (.bak, .old, .orig, .swp, ~)
+   - Source maps (.map) = original source code
+   - Alternative extensions (.json, .xml, .yaml, .env)
+   - Wayback Machine historical versions
+   - Hidden API endpoints inside the file
+   - Hardcoded secrets (api keys, tokens, passwords)
+5. Give curl commands to extract data
+6. Suggest directory enumeration paths
+7. Check Wayback Machine for old versions
 
-- FILES (Burp logs, text files): Extract and analyze all endpoints,
-  parameters, tokens. Build attack surface map. Prioritize targets.
+CRITICAL ADDITIONS for JS/Config file URLs:
+- ALWAYS suggest reading the file first: curl -s "URL" | grep -iE "(api|key|secret|token|endpoint)"
+- Check source maps: URL + ".map"
+- Extract endpoints from JS: curl -s "URL" | grep -oE '"(https?://[^"]+)"'
+- Wayback Machine: https://web.archive.org/web/*/DOMAIN/*
+- JS Beauty: curl -s "URL" | js-beautify
 
-- GENERAL QUESTIONS: Answer with hacker mindset, give practical
-  commands, payloads, and tools.
+When analyzing HTTP REQUESTS:
+1. Identify endpoint, method, content-type
+2. Analyze auth: JWT (decode it), session cookies, API keys
+3. Find IDOR: any ID, UUID, reference in params/body/path
+4. Check for: mass assignment (add extra JSON fields)
+5. Test auth removal: what happens without token?
+6. Check for missing security headers
+7. Give EXACT modified requests for each attack
 
-Always:
-1. Think like an attacker
-2. Give specific, actionable payloads and commands
-3. Prioritize by impact (Critical first)
-4. Explain the full attack chain
-5. Mention: authorized testing only
+When analyzing FILES:
+1. Extract ALL endpoints, parameters, tokens
+2. Find secrets: API keys, passwords, internal URLs
+3. Build attack surface map
+4. Identify patterns suggesting specific vulns
+5. Give prioritized next steps
 
-RULES:
+IMPORTANT RULES:
 - Only help with LEGAL security testing and authorized bug bounty programs
-- Never assist with illegal hacking or unauthorized access
-- Always emphasize responsible disclosure
+- Always verify target is in scope before testing
+- Emphasize responsible disclosure
+- Mention: check HackerOne/Bugcrowd for program before testing
 
-Respond in the same language the user writes in (Arabic or English).
+Always respond in same language as user (Arabic or English).
+Be specific, technical, and actionable. Prioritize by impact.
 
 KNOWLEDGE BASE:
 {KNOWLEDGE_BASE}
@@ -86,25 +109,26 @@ def add_to_history(user_id, role, content):
     if len(history) > 20:
         user_conversations[user_id] = history[-20:]
 
-def is_url(text):
-    url_pattern = re.compile(
-        r'https?://[^\s]+'
-        r'|www\.[^\s]+'
-        r'|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}[^\s]*'
-    )
-    return bool(url_pattern.search(text))
-
-def is_http_request(text):
-    http_methods = ['GET ', 'POST ', 'PUT ', 'DELETE ', 'PATCH ', 'OPTIONS ', 'HEAD ']
-    return any(text.strip().startswith(method) for method in http_methods)
+def detect_url_type(url):
+    js_extensions = ['.js', '.ts', '.jsx', '.tsx']
+    config_names = ['config', 'settings', 'env', 'constants', 'secrets', 'credentials']
+    url_lower = url.lower()
+    is_js = any(url_lower.endswith(ext) or (ext + '?') in url_lower for ext in js_extensions)
+    is_config = any(name in url_lower for name in config_names)
+    return "js_config" if (is_js or is_config) else "regular_url"
 
 def detect_content_type(text):
-    if is_http_request(text):
+    http_methods = ['GET ', 'POST ', 'PUT ', 'DELETE ', 'PATCH ', 'OPTIONS ', 'HEAD ']
+    url_pattern = re.compile(r'https?://[^\s]+|www\.[^\s]+')
+    if any(text.strip().startswith(m) for m in http_methods):
         return "http_request"
-    elif is_url(text):
-        return "url"
-    else:
-        return "question"
+    elif url_pattern.search(text):
+        urls = url_pattern.findall(text)
+        if urls:
+            url_type = detect_url_type(urls[0])
+            return f"url_{url_type}"
+        return "url_regular"
+    return "question"
 
 async def send_long_message(update, text):
     if len(text) > 4096:
@@ -114,73 +138,144 @@ async def send_long_message(update, text):
     else:
         await update.message.reply_text(text)
 
+def build_url_prompt(url, content_type):
+    if content_type == "url_js_config":
+        return (
+            f"Analyze this JS/Config file URL from a bug bounty target:\n{url}\n\n"
+            f"This is a JavaScript or configuration file. Please provide:\n\n"
+            f"1. IMMEDIATE ACTION - Read the file first:\n"
+            f"   - curl command to read and grep for secrets\n"
+            f"   - What sensitive data to look for inside\n\n"
+            f"2. SOURCE MAP CHECK (Critical):\n"
+            f"   - Check {url}.map for original source code\n"
+            f"   - Explain why source maps are a goldmine\n\n"
+            f"3. BACKUP FILES to check:\n"
+            f"   - .bak, .old, .orig, .swp, ~, .save variations\n"
+            f"   - Give exact URLs to test\n\n"
+            f"4. ALTERNATIVE EXTENSIONS:\n"
+            f"   - .json, .xml, .yaml, .yml, .env variations\n"
+            f"   - Give exact URLs\n\n"
+            f"5. WAYBACK MACHINE:\n"
+            f"   - Command to find historical versions\n"
+            f"   - Why old versions may have exposed secrets\n\n"
+            f"6. EXTRACT HIDDEN ENDPOINTS:\n"
+            f"   - curl command to extract all URLs from the JS\n"
+            f"   - grep patterns for API endpoints\n\n"
+            f"7. DIRECTORY ENUMERATION:\n"
+            f"   - Parent directories to enumerate\n"
+            f"   - Related files to look for\n\n"
+            f"8. PATH TRAVERSAL tests\n\n"
+            f"9. SECRETS to grep for: api_key, token, password, aws, firebase, etc.\n\n"
+            f"Prioritize by impact. Give exact commands for each step."
+        )
+    else:
+        return (
+            f"Analyze this URL from a bug bounty target:\n{url}\n\n"
+            f"Please provide:\n"
+            f"1. URL structure breakdown (domain, path, parameters)\n"
+            f"2. ALL injection points identified\n"
+            f"3. IDOR opportunities (numeric IDs, UUIDs, references)\n"
+            f"4. Vulnerability tests with exact payloads:\n"
+            f"   - SQLi, XSS, SSRF, Path Traversal, IDOR\n"
+            f"5. Modified URLs for each attack\n"
+            f"6. Parameter fuzzing approach\n"
+            f"7. Related endpoints to discover\n"
+            f"8. Wayback Machine check command\n\n"
+            f"Prioritize by impact. Be specific with payloads."
+        )
+
+def build_http_prompt(request_text):
+    return (
+        f"Analyze this HTTP request from a bug bounty target:\n\n"
+        f"{request_text}\n\n"
+        f"Provide comprehensive analysis:\n\n"
+        f"1. ENDPOINT ANALYSIS:\n"
+        f"   - Method, path, API version\n"
+        f"   - Functionality purpose\n\n"
+        f"2. AUTHENTICATION:\n"
+        f"   - Token type (JWT/session/API key)\n"
+        f"   - If JWT: decode and analyze claims\n"
+        f"   - Test removing auth completely\n\n"
+        f"3. IDOR OPPORTUNITIES:\n"
+        f"   - All IDs, UUIDs, references\n"
+        f"   - Exact modified requests to test\n\n"
+        f"4. INJECTION POINTS:\n"
+        f"   - SQLi, XSS, SSRF, XXE payloads\n"
+        f"   - Exact modified requests\n\n"
+        f"5. MASS ASSIGNMENT:\n"
+        f"   - Extra fields to add to JSON body\n"
+        f"   - role, isAdmin, permissions fields\n\n"
+        f"6. SECURITY HEADERS CHECK:\n"
+        f"   - Missing: CSRF token, security headers\n\n"
+        f"7. BUSINESS LOGIC:\n"
+        f"   - Logic flaws, race conditions\n\n"
+        f"Give EXACT modified requests for each attack. Prioritize by impact."
+    )
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    welcome_msg = (
+    msg = (
         f"🎯 *مرحباً {user.first_name}!*\n\n"
         "أنا بوتك الخبير في *Bug Bounty Hunting* 🔐\n\n"
         "*أقدر أحلل:*\n"
-        "🖼️ *Screenshots* - ارسل صورة من الهدف\n"
-        "🔗 *URLs* - ارسل أي رابط لتحليله\n"
-        "📋 *HTTP Requests* - الصق الـ request كامل\n"
-        "📄 *ملفات* - Burp logs, text files, reports\n"
+        "🖼️ *Screenshots* - صور من الهدف\n"
+        "🔗 *URLs* - روابط عادية أو JS/Config files\n"
+        "📋 *HTTP Requests* - من Burp Suite\n"
+        "📄 *ملفات* - Burp logs, recon output\n"
         "💬 *أسئلة* - أي سؤال عن Bug Bounty\n\n"
+        "*تحليل خاص لـ JS/Config files:*\n"
+        "🔑 Secrets & API Keys\n"
+        "🗺️ Source Maps\n"
+        "💾 Backup Files\n"
+        "📜 Wayback Machine\n"
+        "🔍 Hidden Endpoints\n\n"
         "*أوامر:*\n"
-        "/start - الرئيسية\n"
-        "/help - المساعدة\n"
-        "/recon - تقنيات Recon\n"
-        "/vulns - قائمة الثغرات\n"
-        "/tools - الأدوات\n"
-        "/methodology - المنهجية\n"
-        "/report - نموذج تقرير\n"
-        "/clear - مسح المحادثة\n\n"
-        "⚠️ *للاختبار القانوني والبرامج المصرح بها فقط*"
+        "/recon /vulns /tools /methodology /report /clear\n\n"
+        "⚠️ *للبرامج المصرح بها فقط*"
     )
-    await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_msg = (
+    msg = (
         "🛡️ *كيف تستخدم البوت*\n\n"
-        "*1. ارسل Screenshot:*\n"
-        "📸 صورة من الموقع الهدف\n"
-        "→ البوت يحلل ويقترح الثغرات\n\n"
-        "*2. ارسل URL:*\n"
+        "*1. Screenshot:*\n"
+        "📸 ارسل صورة → تحليل فوري\n\n"
+        "*2. URL عادي:*\n"
         "🔗 https://target.com/api/user?id=123\n"
-        "→ البوت يحلل المعاملات ويعطيك payloads\n\n"
-        "*3. ارسل HTTP Request:*\n"
-        "📋 الصق الـ request من Burp Suite\n"
-        "→ البوت يحلل ويقترح الهجمات\n\n"
-        "*4. ارسل ملف:*\n"
-        "📄 Burp log, recon output, text file\n"
-        "→ البوت يستخرج ويحلل كل شيء\n\n"
-        "*5. اسأل مباشرة:*\n"
-        "💬 كيف أستغل XXE؟\n"
-        "→ شرح مع payloads وأوامر\n\n"
+        "→ تحليل parameters + payloads\n\n"
+        "*3. JS/Config URL:*\n"
+        "🔗 https://target.com/config.js\n"
+        "→ secrets, source maps, backups, wayback\n\n"
+        "*4. HTTP Request:*\n"
+        "📋 الصق من Burp Suite\n"
+        "→ تحليل auth + IDOR + injections\n\n"
+        "*5. ملف:*\n"
+        "📄 أي text file أو log\n"
+        "→ استخراج endpoints + secrets\n\n"
+        "*6. سؤال مباشر:*\n"
+        "💬 اسأل أي شيء عن Bug Bounty\n\n"
         "⚠️ للبرامج المصرح بها فقط!"
     )
-    await update.message.reply_text(help_msg, parse_mode='Markdown')
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def recon_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🔍 *Recon Cheatsheet*\n\n"
         "*Subdomains:*\n"
         "```\nsubfinder -d target.com | httpx -silent\n"
-        "amass enum -passive -d target.com\n"
-        "assetfinder --subs-only target.com\n```\n\n"
-        "*Screenshots:*\n"
-        "```\ngowitness scan -f alive.txt\n```\n\n"
+        "amass enum -passive -d target.com\n```\n\n"
+        "*JS Files Analysis:*\n"
+        "```\n# قراءة وإيجاد secrets\ncurl -s URL | grep -iE '(api|key|secret|token|endpoint)'\n\n"
+        "# استخراج endpoints\ncurl -s URL | grep -oE '\"(https?://[^\"]+)\"'\n\n"
+        "# Source map\ncurl -s URL.map | python3 -m json.tool\n\n"
+        "# Wayback Machine\ncurl 'https://web.archive.org/web/*/target.com/ui/*'\n```\n\n"
         "*CVE Scan:*\n"
         "```\nnuclei -l alive.txt -t cves/ -t exposures/\n```\n\n"
         "*Content Discovery:*\n"
-        "```\nffuf -w wordlist.txt -u https://target.com/FUZZ\n```\n\n"
+        "```\nffuf -w wordlist.txt -u https://target.com/FUZZ\n"
+        "ffuf -w files.txt -u https://target.com/FUZZ -e .bak,.old,.map\n```\n\n"
         "*GitHub Secrets:*\n"
-        "```\ntrufflehog github --org=target\n```\n\n"
-        "*Shodan:*\n"
-        "```\norg:\"Target\" http.title:\"Dashboard\"\n"
-        "ssl:\"target.com\" 200\n```\n\n"
-        "*Parameters:*\n"
-        "```\narjun -u https://target.com/api/endpoint\n"
-        "paramspider -d target.com\n```"
+        "```\ntrufflehog github --org=target\n```"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -188,91 +283,86 @@ async def vulns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🔥 *Vulnerability Priority List*\n\n"
         "*🔴 Critical:*\n"
-        "• RCE - Remote Code Execution\n"
-        "• Auth Bypass - تجاوز المصادقة\n"
-        "• SQLi - SQL Injection\n"
-        "• SSRF - Server-Side Request Forgery\n"
-        "• XXE - XML External Entity\n\n"
+        "• RCE, Auth Bypass, SQLi\n"
+        "• SSRF → Cloud Metadata\n"
+        "• XXE → File Read\n"
+        "• Secrets in JS files\n\n"
         "*🟠 High:*\n"
-        "• IDOR/BOLA - Broken Object Level Auth\n"
-        "• Stored XSS - Cross-Site Scripting\n"
-        "• JWT Attacks - alg:none, weak secret\n"
-        "• Race Conditions - العمليات المالية\n"
-        "• OAuth Misconfig\n\n"
+        "• IDOR/BOLA\n"
+        "• Stored XSS\n"
+        "• JWT Attacks\n"
+        "• Race Conditions\n"
+        "• Source Map Exposure\n\n"
         "*🟡 Medium:*\n"
         "• Reflected XSS\n"
-        "• CSRF\n"
-        "• Open Redirect\n"
-        "• CORS Misconfiguration\n"
+        "• CSRF, Open Redirect\n"
+        "• CORS Misconfig\n"
         "• Host Header Injection\n"
         "• Subdomain Takeover\n\n"
-        "*🔵 Low/Info:*\n"
+        "*🔵 Info:*\n"
         "• Missing Security Headers\n"
-        "• Information Disclosure\n"
-        "• Rate Limiting Missing\n\n"
+        "• Info Disclosure\n"
+        "• Backup Files Exposed\n\n"
         "💬 اسألني عن أي ثغرة للتفاصيل!"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def tools_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "🛠️ *Essential Bug Bounty Tools*\n\n"
+        "🛠️ *Essential Tools*\n\n"
         "*Recon:*\n"
-        "• subfinder, amass, assetfinder\n"
-        "• httpx, naabu, masscan\n"
-        "• gowitness, aquatone\n"
-        "• nuclei, nikto\n\n"
+        "• subfinder, amass, httpx\n"
+        "• gowitness, nuclei, nikto\n\n"
+        "*JS Analysis:*\n"
+        "• js-beautify\n"
+        "• LinkFinder\n"
+        "• SecretFinder\n"
+        "• source-map-explorer\n\n"
         "*Web Testing:*\n"
-        "• Burp Suite Pro ← الأساس\n"
-        "• ffuf, gobuster, feroxbuster\n"
-        "• sqlmap, dalfox\n"
-        "• jwt_tool, jwt.io\n"
-        "• arjun, paramspider\n\n"
+        "• Burp Suite Pro\n"
+        "• ffuf, sqlmap, dalfox\n"
+        "• jwt_tool, arjun\n\n"
         "*Burp Extensions:*\n"
         "• Logger++\n"
-        "• Autorize ← IDOR\n"
-        "• Turbo Intruder ← Race Conditions\n"
+        "• Autorize\n"
+        "• Turbo Intruder\n"
         "• JWT Editor\n"
-        "• Param Miner\n"
-        "• Active Scan++\n\n"
+        "• JS Miner\n\n"
         "*Secrets:*\n"
-        "• trufflehog, gitleaks, gitrob\n\n"
-        "*Cloud:*\n"
-        "• cloud_enum, S3Scanner\n"
-        "• pacu (AWS), ScoutSuite\n\n"
-        "*Wordlists:*\n"
-        "• SecLists ← الأساسي\n"
-        "• Assetnote Wordlists"
+        "• trufflehog, gitleaks\n"
+        "• SecretFinder\n\n"
+        "*Wayback:*\n"
+        "• waybackurls\n"
+        "• gau (GetAllUrls)\n"
+        "```\necho target.com | waybackurls | grep '\\.js$'\n```"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def methodology_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🎯 *Bug Bounty Methodology*\n\n"
-        "*Order of Operations:*\n\n"
         "*1️⃣ Recon*\n"
-        "• Subdomains, IPs, ASN\n"
-        "• Tech stack, services\n"
+        "• Subdomains, IPs, ASN, Cloud\n"
         "• GitHub, Shodan, crt.sh\n\n"
-        "*2️⃣ CVE Scan*\n"
-        "• nuclei على كل الـ assets\n"
-        "• Check framework versions\n\n"
-        "*3️⃣ Walk the App*\n"
-        "• استخدم التطبيق بشكل طبيعي\n"
+        "*2️⃣ JS Analysis (مهم جداً)*\n"
+        "• اقرأ كل JS file\n"
+        "• ابحث عن secrets وendpoints\n"
+        "• تحقق من source maps\n"
+        "• Wayback Machine للنسخ القديمة\n\n"
+        "*3️⃣ CVE Scan*\n"
+        "• nuclei على كل assets\n\n"
+        "*4️⃣ Walk the App*\n"
         "• Burp Suite يسجل كل شيء\n"
         "• حدد Heat Map Areas\n\n"
-        "*4️⃣ Content Discovery*\n"
-        "• Directories, files, APIs\n"
-        "• Hidden parameters\n\n"
-        "*5️⃣ Manual Testing*\n"
-        "• IDOR على كل ID\n"
-        "• SSRF على كل URL param\n"
-        "• XSS على كل input\n"
-        "• Auth على كل endpoint\n\n"
+        "*5️⃣ Content Discovery*\n"
+        "• Dirs, files, APIs, params\n\n"
+        "*6️⃣ Manual Testing*\n"
+        "• IDOR, SSRF, XSS, SQLi\n"
+        "• Auth bypass, Logic flaws\n\n"
         "*Heat Map 🔥:*\n"
-        "🔥🔥🔥 Upload, Admin, New Features\n"
+        "🔥🔥🔥 JS/Config files, Upload, Admin\n"
         "🔥🔥 API, Search, Profile, Export\n"
-        "🔥 Static, Marketing pages"
+        "🔥 Static pages"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -281,51 +371,46 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📝 *Bug Bounty Report Template*\n\n"
         "*Title:*\n"
         "[Vuln Type] in [Feature] allows [Impact]\n\n"
-        "*Severity:* Critical / High / Medium / Low\n\n"
+        "*Severity:* Critical/High/Medium/Low\n\n"
         "*Summary:*\n"
-        "وصف مختصر للثغرة وتأثيرها\n\n"
+        "وصف مختصر وواضح\n\n"
         "*Steps to Reproduce:*\n"
         "1. اذهب إلى...\n"
-        "2. أرسل الطلب التالي...\n"
+        "2. أرسل الطلب...\n"
         "3. لاحظ أن...\n\n"
         "*Impact:*\n"
-        "ماذا يستطيع المهاجم أن يفعل؟\n\n"
+        "ماذا يستطيع المهاجم؟\n\n"
         "*Proof of Concept:*\n"
         "Screenshot / Video / Code\n\n"
         "*Remediation:*\n"
         "كيف يتم الإصلاح؟\n\n"
-        "💡 *نصائح:*\n"
+        "💡 *Tips:*\n"
         "• فيديو PoC = تقرير أقوى\n"
         "• اشرح الـ impact بوضوح\n"
-        "• اقترح الإصلاح دائماً\n"
-        "• كن محترفاً في الكتابة"
+        "• اقترح الإصلاح دائماً"
     )
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_conversations[user_id] = []
-    await update.message.reply_text("✅ تم مسح المحادثة! ابدأ من جديد.")
+    await update.message.reply_text("✅ تم مسح المحادثة!")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action="typing"
     )
-
     try:
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
         file_bytes = await file.download_as_bytearray()
         image_data = base64.standard_b64encode(bytes(file_bytes)).decode("utf-8")
-
         caption = update.message.caption or ""
         user_id = update.effective_user.id
 
         await update.message.reply_text("🔍 جاري تحليل الصورة...")
 
-        client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
-        )
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
         user_content = [
             {
@@ -340,15 +425,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "type": "text",
                 "text": (
                     f"Analyze this screenshot from a bug bounty target.\n"
-                    f"Additional context: {caption}\n\n"
-                    f"Please:\n"
-                    f"1. Identify what you see (login page, admin panel, API, etc.)\n"
-                    f"2. List interesting elements (forms, parameters, endpoints, errors)\n"
-                    f"3. Suggest specific vulnerabilities to test\n"
-                    f"4. Give exact payloads/techniques for each vulnerability\n"
-                    f"5. Prioritize by impact (Critical first)\n"
-                    f"6. Suggest next recon steps\n\n"
-                    f"Think like an elite bug bounty hunter. Be specific and actionable."
+                    f"Context: {caption}\n\n"
+                    f"1. What page/feature is this? (login, admin, API, upload, etc.)\n"
+                    f"2. List ALL visible elements: forms, inputs, buttons, errors, tokens\n"
+                    f"3. Identify tech stack from visible clues\n"
+                    f"4. List vulnerabilities to test with EXACT payloads\n"
+                    f"5. Priority order by impact\n"
+                    f"6. Next recon steps\n"
+                    f"7. Are there any exposed secrets or sensitive info visible?\n\n"
+                    f"Be specific and actionable. Think like elite bug bounty hunter."
                 )
             }
         ]
@@ -361,20 +446,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         result = response.content[0].text
-        add_to_history(user_id, "user", f"[Image analysis] {caption}")
+        add_to_history(user_id, "user", f"[Screenshot] {caption}")
         add_to_history(user_id, "assistant", result)
-
         await send_long_message(update, result)
 
     except Exception as e:
         logger.error(f"Photo error: {e}")
-        await update.message.reply_text(f"❌ خطأ في تحليل الصورة: {str(e)}")
+        await update.message.reply_text(f"❌ خطأ: {str(e)}")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(
         chat_id=update.effective_chat.id, action="typing"
     )
-
     try:
         doc = update.message.document
         filename = doc.file_name or "file.txt"
@@ -382,26 +465,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
 
         if doc.file_size > 5 * 1024 * 1024:
-            await update.message.reply_text(
-                "❌ الملف كبير جداً (max 5MB)"
-            )
+            await update.message.reply_text("❌ الملف كبير جداً (max 5MB)")
             return
 
         file = await context.bot.get_file(doc.file_id)
         file_bytes = await file.download_as_bytearray()
 
         await update.message.reply_text(
-            f"📄 جاري تحليل الملف: `{filename}`...",
+            f"📄 جاري تحليل: `{filename}`...",
             parse_mode='Markdown'
         )
 
         try:
             file_content = file_bytes.decode('utf-8')
         except UnicodeDecodeError:
-            try:
-                file_content = file_bytes.decode('latin-1')
-            except Exception:
-                file_content = str(file_bytes[:3000])
+            file_content = file_bytes.decode('latin-1')
 
         if len(file_content) > 8000:
             file_content = file_content[:8000] + "\n\n[... truncated ...]"
@@ -409,23 +487,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = (
             f"Analyze this file from a bug bounty engagement.\n"
             f"Filename: {filename}\n"
-            f"Additional context: {caption}\n\n"
+            f"Context: {caption}\n\n"
             f"FILE CONTENT:\n{file_content}\n\n"
             f"Please:\n"
-            f"1. Identify what type of file this is\n"
-            f"2. Extract all endpoints, parameters, tokens, secrets\n"
-            f"3. Build an attack surface map\n"
-            f"4. Identify vulnerabilities and interesting patterns\n"
-            f"5. Prioritize targets by impact\n"
-            f"6. Give specific next steps and payloads\n\n"
-            f"Think like an elite bug bounty hunter."
-        )
-
-        client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
+            f"1. File type and purpose\n"
+            f"2. Extract ALL endpoints, parameters, tokens, API keys\n"
+            f"3. Find exposed secrets (api keys, passwords, internal URLs)\n"
+            f"4. Build attack surface map\n"
+            f"5. Identify vulnerability patterns\n"
+            f"6. Check for: hardcoded credentials, debug info, internal paths\n"
+            f"7. Prioritized next steps with exact commands\n\n"
+            f"Think like elite bug bounty hunter. Be specific."
         )
 
         add_to_history(user_id, "user", prompt)
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
         response = client.messages.create(
             model="claude-opus-4-5",
@@ -436,12 +512,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         result = response.content[0].text
         add_to_history(user_id, "assistant", result)
-
         await send_long_message(update, result)
 
     except Exception as e:
         logger.error(f"Document error: {e}")
-        await update.message.reply_text(f"❌ خطأ في تحليل الملف: {str(e)}")
+        await update.message.reply_text(f"❌ خطأ: {str(e)}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -454,44 +529,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         content_type = detect_content_type(user_message)
 
-        if content_type == "url":
-            prompt = (
-                f"Analyze this URL from a bug bounty target:\n{user_message}\n\n"
-                f"Please:\n"
-                f"1. Break down the URL structure (domain, path, parameters)\n"
-                f"2. Identify all injection points and interesting parameters\n"
-                f"3. List potential vulnerabilities with exact payloads\n"
-                f"4. Give modified URLs to test each vulnerability\n"
-                f"5. Suggest additional endpoints to discover\n"
-                f"6. Check for: IDOR, SQLi, XSS, SSRF, Path Traversal, etc.\n\n"
-                f"Prioritize by impact. Be specific with payloads."
+        if content_type == "url_js_config":
+            url_match = re.search(r'https?://[^\s]+', user_message)
+            url = url_match.group(0) if url_match else user_message
+            prompt = build_url_prompt(url, "url_js_config")
+            await update.message.reply_text(
+                "🔍 تم اكتشاف JS/Config file — تحليل متخصص...",
             )
+        elif content_type == "url_regular":
+            url_match = re.search(r'https?://[^\s]+', user_message)
+            url = url_match.group(0) if url_match else user_message
+            prompt = build_url_prompt(url, "url_regular")
         elif content_type == "http_request":
-            prompt = (
-                f"Analyze this HTTP request from a bug bounty target:\n\n"
-                f"{user_message}\n\n"
-                f"Please:\n"
-                f"1. Identify the endpoint and HTTP method\n"
-                f"2. Analyze all headers, cookies, tokens\n"
-                f"3. List all parameters and their purpose\n"
-                f"4. Identify security issues:\n"
-                f"   - Auth mechanisms (JWT, session, API key)\n"
-                f"   - IDOR opportunities (IDs, references)\n"
-                f"   - Injection points (SQLi, XSS, SSRF, XXE)\n"
-                f"   - Missing security headers\n"
-                f"   - CSRF vulnerabilities\n"
-                f"5. Give exact modified requests to test each vuln\n"
-                f"6. Prioritize by impact\n\n"
-                f"Think like an elite bug bounty hunter."
+            prompt = build_http_prompt(user_message)
+            await update.message.reply_text(
+                "📋 تحليل HTTP Request...",
             )
         else:
             prompt = user_message
 
         add_to_history(user_id, "user", prompt)
-
-        client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY")
-        )
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
         response = client.messages.create(
             model="claude-opus-4-5",
@@ -502,7 +560,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         result = response.content[0].text
         add_to_history(user_id, "assistant", result)
-
         await send_long_message(update, result)
 
     except Exception as e:
@@ -524,12 +581,11 @@ def main():
     app.add_handler(CommandHandler("methodology", methodology_command))
     app.add_handler(CommandHandler("report", report_command))
     app.add_handler(CommandHandler("clear", clear_command))
-
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("🚀 Bug Bounty Hunter Bot v3 is running...")
+    logger.info("🚀 Bug Bounty Hunter Bot v4 is running...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
