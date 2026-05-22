@@ -16,14 +16,26 @@ def load_knowledge_base():
     knowledge = ""
     knowledge_dir = "knowledge"
     if os.path.exists(knowledge_dir):
+        # Load root knowledge files
         for filename in sorted(os.listdir(knowledge_dir)):
-            if filename.endswith(".md"):
-                filepath = os.path.join(knowledge_dir, filename)
+            filepath = os.path.join(knowledge_dir, filename)
+            if filename.endswith(".md") and os.path.isfile(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
                     knowledge += f"\n\n{'='*60}\n"
                     knowledge += f"# FILE: {filename}\n"
                     knowledge += f"{'='*60}\n"
                     knowledge += f.read()
+        # Load vulnerability-specific knowledge
+        vulns_dir = os.path.join(knowledge_dir, "vulns")
+        if os.path.exists(vulns_dir):
+            for filename in sorted(os.listdir(vulns_dir)):
+                filepath = os.path.join(vulns_dir, filename)
+                if filename.endswith(".md") and os.path.isfile(filepath):
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        knowledge += f"\n\n{'='*60}\n"
+                        knowledge += f"# VULN FILE: {filename}\n"
+                        knowledge += f"{'='*60}\n"
+                        knowledge += f.read()
     return knowledge
 
 KNOWLEDGE_BASE = load_knowledge_base()
