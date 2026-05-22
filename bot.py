@@ -102,23 +102,31 @@ IMPORTANT RULES:
 - Mention: check HackerOne/Bugcrowd for program before testing
 
 Always respond in same language as user (Arabic or English).
-
-== REPORT GENERATION MODE ==
-When asked to generate a bug bounty report:
-1. Use the EXACT format for the requested platform (HackerOne/Bugcrowd/Intigriti)
-2. Write a compelling title: "[Vuln Type] in [Feature] leads to [Impact]"
-3. Calculate CVSS score accurately
-4. Include realistic HTTP requests/responses as PoC
-5. Make the impact section convincing and specific
-6. Provide actionable remediation with code examples
-7. Write as if this is a real submission that should get maximum bounty
-8. Use professional security researcher language
-9. Include all required sections for the platform
-
-HackerOne format: Summary, Severity+CVSS, Description, Steps To Reproduce, Impact, PoC, Remediation
-Bugcrowd format: Bug Description, Severity(P1-P4), Target, Steps, PoC, Impact, Suggested Fix
-Intigriti format: Title, Affected Asset, Vulnerability Type, Severity, Technical Description, Reproduction Steps, Evidence, Impact Assessment, Mitigation
 Be specific, technical, and actionable. Prioritize by impact.
+
+== WEBSITE ANALYSIS PROTOCOL ==
+When user sends ANY website URL, ALWAYS:
+1. DETECT all features present on the site (auth, upload, search, API, payment, admin, etc.)
+2. MAP attack actions for each detected feature
+3. Give EXACT payloads and commands for each
+4. PRIORITIZE by impact (Critical first)
+5. Output in this format:
+
+🎯 TARGET: [URL]
+
+🔍 DETECTED FEATURES:
+🔴 CRITICAL: [feature] → [attack]
+🟠 HIGH: [feature] → [attack]
+🟡 MEDIUM: [feature] → [attack]
+
+⚡ IMMEDIATE ACTIONS:
+1. [exact command/payload]
+2. [exact command/payload]
+
+🛠️ RECON COMMANDS:
+[specific commands for this target]
+
+Use the feature_detection_actions.md knowledge to map every feature to its attacks.
 
 KNOWLEDGE BASE:
 {KNOWLEDGE_BASE}
@@ -395,67 +403,29 @@ async def methodology_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if not args:
-        msg = (
-            "📝 *نظام توليد التقارير الاحترافية*\n\n"
-            "*الاستخدام:*\n"
-            "`/report [نوع الثغرة] [المنصة]`\n\n"
-            "*أمثلة:*\n"
-            "`/report xss hackerone`\n"
-            "`/report idor bugcrowd`\n"
-            "`/report ssrf intigriti`\n"
-            "`/report sqli hackerone`\n"
-            "`/report rce bugcrowd`\n"
-            "`/report csrf hackerone`\n\n"
-            "*أو أخبرني بتفاصيل الثغرة:*\n"
-            "اكتب مثلاً:\n"
-            "\"اكتب تقرير XSS على HackerOne وجدت في صفحة البروفايل يؤدي لسرقة الكوكيز\"\n\n"
-            "*المنصات المدعومة:*\n"
-            "• HackerOne (h1)\n"
-            "• Bugcrowd (bc)\n"
-            "• Intigriti\n"
-            "• Generic"
-        )
-        await update.message.reply_text(msg, parse_mode='Markdown')
-        return
-
-    vuln_type = args[0].lower() if args else "general"
-    platform = args[1].lower() if len(args) > 1 else "hackerone"
-    user_id = update.effective_user.id
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    await update.message.reply_text(f"📝 جاري إنشاء تقرير {vuln_type.upper()} لـ {platform}...")
-
-    prompt = (
-        f"Generate a complete, professional bug bounty report for a {vuln_type.upper()} vulnerability.\n"
-        f"Platform: {platform}\n\n"
-        f"Requirements:\n"
-        f"1. Use the exact report format/template for {platform}\n"
-        f"2. Include realistic example values (URLs, payloads, responses)\n"
-        f"3. Write a compelling title following best practices\n"
-        f"4. Include all sections: Summary, Severity, Description, Steps to Reproduce, Impact, PoC, Remediation\n"
-        f"5. Add realistic HTTP requests and responses as PoC\n"
-        f"6. Calculate appropriate CVSS score\n"
-        f"7. Make it look like a real, high-quality report that would get maximum bounty\n"
-        f"8. Include specific remediation code/guidance\n\n"
-        f"Generate the complete report now in the format used by {platform}."
+    msg = (
+        "📝 *Bug Bounty Report Template*\n\n"
+        "*Title:*\n"
+        "[Vuln Type] in [Feature] allows [Impact]\n\n"
+        "*Severity:* Critical/High/Medium/Low\n\n"
+        "*Summary:*\n"
+        "وصف مختصر وواضح\n\n"
+        "*Steps to Reproduce:*\n"
+        "1. اذهب إلى...\n"
+        "2. أرسل الطلب...\n"
+        "3. لاحظ أن...\n\n"
+        "*Impact:*\n"
+        "ماذا يستطيع المهاجم؟\n\n"
+        "*Proof of Concept:*\n"
+        "Screenshot / Video / Code\n\n"
+        "*Remediation:*\n"
+        "كيف يتم الإصلاح؟\n\n"
+        "💡 *Tips:*\n"
+        "• فيديو PoC = تقرير أقوى\n"
+        "• اشرح الـ impact بوضوح\n"
+        "• اقترح الإصلاح دائماً"
     )
-
-    try:
-        add_to_history(user_id, "user", prompt)
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        response = client.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=3000,
-            system=SYSTEM_PROMPT,
-            messages=get_user_history(user_id)
-        )
-        result = response.content[0].text
-        add_to_history(user_id, "assistant", result)
-        await send_long_message(update, result)
-    except Exception as e:
-        await update.message.reply_text(f"❌ خطأ: {str(e)}")
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
